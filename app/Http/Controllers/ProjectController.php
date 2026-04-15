@@ -22,8 +22,6 @@ class ProjectController extends Controller
                 'title'       => 'required|string|max:255',
                 'description' => 'nullable|string',
                 'category'    => 'nullable|string|max:100',
-
-                
                 'semester_id' => 'required|exists:semesters,id',
                 'shift_id'    => 'required|exists:shifts,id',
                 'image'       => 'nullable|image|max:10240',
@@ -34,7 +32,7 @@ class ProjectController extends Controller
                 // Subida directa por API HTTP
                 $response = Http::post("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
                     'file'          => 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath())),
-                    'upload_preset' => 'ml_default', // Asegúrate de que este preset sea "Unsigned" en Cloudinary
+                    'upload_preset' => 'ml_default',
                 ]);
 
                 if ($response->successful()) {
