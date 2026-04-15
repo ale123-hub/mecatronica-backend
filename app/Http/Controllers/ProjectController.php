@@ -29,21 +29,27 @@ class ProjectController extends Controller
 
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
-                // Subida directa por API HTTP
-                $response = Http::post("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
-                    'file'          => 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath())),
-                    'upload_preset' => 'ml_default',
+                $base64 = 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
+                
+                $response = Http::withHeaders([
+                    'Accept' => 'application/json',
+                ]) ->post ("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
+                    'file'          => $base64, 
+                    'upload_preset' => 'preset_mecatronica',
                 ]);
 
                 if ($response->successful()) {
                     $data['image'] = $response->json()['secure_url'];
+                }else{
+                    Log::error('Error En Cloudinary: ' . $response->body());
                 }
             }
 
             $project = Project::create($data);
-            $this->syncRelations($project, $request);
+            return response()->json($project, 201);
+//            $this->syncRelations($project, $request);
 
-            return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
+ //           return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
 
         } catch (\Throwable $e) {
             return response()->json([
