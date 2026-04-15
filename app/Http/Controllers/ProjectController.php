@@ -32,7 +32,7 @@ class ProjectController extends Controller
                 // Subida directa por API HTTP
                 $response = Http::post("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
                     'file'          => 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath())),
-                    'upload_preset' => 'preset_mecatronica',
+                    'upload_preset' => 'ml_default',
                 ]);
 
                 if ($response->successful()) {
