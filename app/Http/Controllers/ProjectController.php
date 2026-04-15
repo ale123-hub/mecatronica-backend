@@ -22,6 +22,8 @@ class ProjectController extends Controller
                 'title'       => 'required|string|max:255',
                 'description' => 'nullable|string',
                 'category'    => 'nullable|string|max:100',
+
+                
                 'semester_id' => 'required|exists:semesters,id',
                 'shift_id'    => 'required|exists:shifts,id',
                 'image'       => 'nullable|image|max:10240',
