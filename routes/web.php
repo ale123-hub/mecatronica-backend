@@ -14,3 +14,13 @@ Route::get('/limpiar', function () {
     Artisan::call('config:cache');
     return "Servidor refrescado. ¡Prueba ahora!";
 });
+
+
+Route::get('/run-migrations', function () {
+    try {
+        Artisan::call('migrate', ['--force' => true]);
+        return "Migraciones ejecutadas con éxito: " . Artisan::output();
+    } catch (\Exception $e) {
+        return "Error ejecutando migraciones: " . $e->getMessage();
+    }
+});
