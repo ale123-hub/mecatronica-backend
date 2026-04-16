@@ -13,54 +13,54 @@ use Illuminate\Support\Facades\Log;
 class ProjectController extends Controller
 {
     public function index()
-    {
-        return response()->json(Project::with(['semester', 'shift', 'students', 'teachers'])->get());
-    }
+    {   
+         $projects = Project::with(['semester', 'shift', 'students', 'teachers', 'images'])->get();
+        return response()->json($projects);
+}
+public function store(Request $request)
+{
+    try {
+        $data = $request->validate([
+            'title'       => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'category'    => 'nullable|string|max:100',
+            'semester_id' => 'required|exists:semesters,id',
+            'shift_id'    => 'required|exists:shifts,id',
+            'image'       => 'nullable|image|max:10240',
+            'extra_images'  => 'nullable|array', // Validamos que venga un grupo
+            'extra_images.*' => 'image|max:10240', // Y que cada uno sea imagen
+        ]);
 
-    public function store(Request $request)
-    {
-        try {
-            $data = $request->validate([
-                'title'       => 'required|string|max:255',
-                'description' => 'nullable|string',
-                'category'    => 'nullable|string|max:100',
-                'semester_id' => 'required|exists:semesters,id',
-                'shift_id'    => 'required|exists:shifts,id',
-                'image'       => 'nullable|image|max:10240', //imagen principal
-                'extra_images.*' => 'nullable | image | max:10240', //fotos para el carrusel
+        // 1. Subir Imagen Principal a Cloudinary
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            $base64 = 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
+            
+            $response = Http::post("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
+                'file'          => $base64, 
+                'upload_preset' => 'preset_mecatronica',
             ]);
 
-            if ($request->hasFile('image')) {
-                $file = $request->file('image');
-                $base64 = 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
+            if ($response->successful()) {
+                $data['image'] = $response->json()['secure_url'];
+            }
+        }
+
+        // 2. Crear el proyecto primero
+        $project = Project::create($data);
+        
+        // 3. Subir y guardar las imágenes del carrusel
+        if ($request->hasFile('extra_images')) {
+            foreach ($request->file('extra_images') as $extraFile) {
+                $extraBase64 = 'data:image/' . $extraFile->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($extraFile->getRealPath()));
                 
-                $response = Http::withHeaders([
-                    'Accept' => 'application/json',
-                ]) ->post ("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
-                    'file'          => $base64, 
+                $extraResponse = Http::post("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
+                    'file' => $extraBase64,
                     'upload_preset' => 'preset_mecatronica',
                 ]);
 
-                if ($response->successful()) {
-                    $data['image'] = $response->json()['secure_url'];
-                }else{
-                    Log::error('Error En Cloudinary: ' . $response->body());
-                }
-            }
-
-            //crea proyecto
-            $project = Project::create($data);
-            
-            // para el carrusel
-            if ($request->file('extra_images')) {
-                foreach ($request->file('extra_images') as $extraFile) {
-                $extraBase64 = 'data:image/' . $extraFile->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($extraFile->getRealPath()));
-                $extraResponse = Http::withHeaders(['Accept' => 'application/json'])
-                    ->post("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
-                        'file' => $extraBase64,
-                        'upload_preset' => 'preset_mecatronica',
-                    ]);
                 if ($extraResponse->successful()) {
+                    // AQUÍ ESTÁ EL TRUCO: Creamos el registro en la tabla project_images
                     $project->images()->create([
                         'image_url' => $extraResponse->json()['secure_url']
                     ]);
@@ -68,18 +68,18 @@ class ProjectController extends Controller
             }
         }
 
-            return response()->json($project->load('images'), 201);
-//            $this->syncRelations($project, $request);
+        // Sincronizar relaciones (estudiantes/profesores) si tienes el método
+        $this->syncRelations($project, $request);
 
- //           return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
+        return response()->json($project->load(['images', 'semester', 'shift', 'students', 'teachers']), 201);
 
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'Error en el servidor',
-                'detalle' => $e->getMessage()
-            ], 500);
-        }
+    } catch (\Throwable $e) {
+        return response()->json([
+            'error' => 'Error en el servidor',
+            'detalle' => $e->getMessage()
+        ], 500);
     }
+}
 
     public function update(Request $request, Project $project)
     {

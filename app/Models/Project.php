@@ -10,12 +10,7 @@ class Project extends Model
     use HasFactory;
 
     protected $fillable = [
-        'title',
-        'description',
-        'category',
-        'semester_id',
-        'shift_id',
-        'image',
+       'title', 'description', 'image', 'category', 'semester_id', 'shift_id'
     ];
 
     // Relaciones
@@ -40,6 +35,6 @@ class Project extends Model
     }
     public function images()
     {
-        return $this->hasMany(ProjectImage::class);
+        return $this->hasMany(ProjectImage::class, 'project_id');
     }
 }
