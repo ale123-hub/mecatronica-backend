@@ -16,14 +16,7 @@ class ProjectController extends Controller
 
     public function index()
     {
-        $projects = Project::with([
-            'semester',
-            'shift',
-            'students',
-            'teachers',
-            'images'
-        ])->get();
-
+        $projects = Project::with(['semester', 'shift', 'students', 'teachers', 'images'])->get();
         return response()->json($projects);
     }
 
@@ -32,14 +25,19 @@ class ProjectController extends Controller
         return DB::transaction(function () use ($request) {
 
             $data = $request->validate([
-                'title'            => 'required|string|max:255',
-                'description'      => 'nullable|string',
-                'category'         => 'nullable|string|max:100',
-                'semester_id'      => 'required|exists:semesters,id',
-                'shift_id'         => 'required|exists:shifts,id',
-                'image'            => 'nullable|image|max:10240',
+                'title'          => 'required|string|max:255',
+                'description'    => 'nullable|string',
+                'category'       => 'nullable|string|max:100',
+                'semester_id'    => 'required|exists:semesters,id',
+                'shift_id'       => 'required|exists:shifts,id',
 
-                // 🔥 CORREGIDO (ANTES extra_images)
+                'image'          => 'nullable|image|max:10240',
+
+                // extra images
+                'extra_images'   => 'nullable|array',
+                'extra_images.*' => 'image|max:10240',
+
+                // NUEVO: prototype carousel
                 'prototype_images'   => 'nullable|array',
                 'prototype_images.*' => 'image|max:10240',
             ]);
@@ -52,10 +50,22 @@ class ProjectController extends Controller
             // 2. Crear proyecto
             $project = Project::create($data);
 
-            // 3. 🔥 CARRUSEL PROTOTIPO (CORREGIDO)
+            // 3. Extra images
+            if ($request->hasFile('extra_images')) {
+                foreach ($request->file('extra_images') as $extraFile) {
+                    $url = $this->uploadToCloudinary($extraFile);
+
+                    if ($url) {
+                        $project->images()->create([
+                            'image_url' => $url
+                        ]);
+                    }
+                }
+            }
+
+            // 4. PROTOTYPE IMAGES (CARRUSEL)
             if ($request->hasFile('prototype_images')) {
                 foreach ($request->file('prototype_images') as $file) {
-
                     $url = $this->uploadToCloudinary($file);
 
                     if ($url) {
@@ -69,13 +79,7 @@ class ProjectController extends Controller
             $this->syncRelations($project, $request);
 
             return response()->json(
-                $project->load([
-                    'images',
-                    'semester',
-                    'shift',
-                    'students',
-                    'teachers'
-                ]),
+                $project->load(['images', 'semester', 'shift', 'students', 'teachers']),
                 201
             );
         });
@@ -86,28 +90,45 @@ class ProjectController extends Controller
         return DB::transaction(function () use ($request, $project) {
 
             $data = $request->validate([
-                'title'            => 'sometimes|required|string|max:255',
-                'description'      => 'nullable|string',
-                'category'         => 'nullable|string|max:100',
-                'semester_id'      => 'sometimes|required|exists:semesters,id',
-                'shift_id'         => 'sometimes|required|exists:shifts,id',
-                'image'            => 'nullable|image|max:10240',
+                'title'          => 'sometimes|required|string|max:255',
+                'description'    => 'nullable|string',
+                'category'       => 'nullable|string|max:100',
+                'semester_id'    => 'sometimes|required|exists:semesters,id',
+                'shift_id'       => 'sometimes|required|exists:shifts,id',
 
-                // 🔥 CORREGIDO
+                'image'          => 'nullable|image|max:10240',
+
+                'extra_images'   => 'nullable|array',
+                'extra_images.*' => 'image|max:10240',
+
+                // NUEVO
                 'prototype_images'   => 'nullable|array',
                 'prototype_images.*' => 'image|max:10240',
             ]);
 
+            // principal
             if ($request->hasFile('image')) {
                 $data['image'] = $this->uploadToCloudinary($request->file('image'));
             }
 
             $project->update($data);
 
-            // 🔥 AGREGAR MÁS IMÁGENES AL CARRUSEL
+            // extra images
+            if ($request->hasFile('extra_images')) {
+                foreach ($request->file('extra_images') as $extraFile) {
+                    $url = $this->uploadToCloudinary($extraFile);
+
+                    if ($url) {
+                        $project->images()->create([
+                            'image_url' => $url
+                        ]);
+                    }
+                }
+            }
+
+            // prototype images
             if ($request->hasFile('prototype_images')) {
                 foreach ($request->file('prototype_images') as $file) {
-
                     $url = $this->uploadToCloudinary($file);
 
                     if ($url) {
@@ -121,13 +142,7 @@ class ProjectController extends Controller
             $this->syncRelations($project, $request);
 
             return response()->json(
-                $project->load([
-                    'images',
-                    'semester',
-                    'shift',
-                    'students',
-                    'teachers'
-                ])
+                $project->load(['semester', 'shift', 'students', 'teachers', 'images'])
             );
         });
     }
@@ -135,8 +150,8 @@ class ProjectController extends Controller
     private function uploadToCloudinary($file)
     {
         $response = Http::post($this->cloudinary_url, [
-            'file' => 'data:image/' . $file->getClientOriginalExtension() . ';base64,' .
-                base64_encode(file_get_contents($file->getRealPath())),
+            'file' => 'data:image/' . $file->getClientOriginalExtension() .
+                ';base64,' . base64_encode(file_get_contents($file->getRealPath())),
             'upload_preset' => $this->preset,
         ]);
 
