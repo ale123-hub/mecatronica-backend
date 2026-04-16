@@ -10,10 +10,16 @@ class Project extends Model
     use HasFactory;
 
     protected $fillable = [
-       'title', 'description', 'image', 'category', 'semester_id', 'shift_id'
+        'title', 
+        'description', 
+        'image', 
+        'category', 
+        'semester_id', 
+        'shift_id'
     ];
 
     // Relaciones
+
     public function semester()
     {
         return $this->belongsTo(Semester::class);
@@ -26,15 +32,16 @@ class Project extends Model
 
     public function students()
     {
-        return $this->belongsToMany(\App\Models\Student::class);
+        return $this->belongsToMany(Student::class);
     }
 
     public function teachers()
     {
         return $this->belongsToMany(Teacher::class);
     }
+
     public function images()
     {
-        return $this->hasMany(ProjectImage::class, 'project_id');
+        return $this->hasMany(ProjectImage::class);
     }
 }
