@@ -26,7 +26,8 @@ class ProjectController extends Controller
                 'category'    => 'nullable|string|max:100',
                 'semester_id' => 'required|exists:semesters,id',
                 'shift_id'    => 'required|exists:shifts,id',
-                'image'       => 'nullable|image|max:10240',
+                'image'       => 'nullable|image|max:10240', //imagen principal
+                'extra_images.*' => 'nullable | image | max:10240', //fotos para el carrusel
             ]);
 
             if ($request->hasFile('image')) {
@@ -47,8 +48,27 @@ class ProjectController extends Controller
                 }
             }
 
+            //crea proyecto
             $project = Project::create($data);
-            return response()->json($project, 201);
+            
+            // para el carrusel
+            if ($request->file('extra_images')) {
+                foreach ($request->file('extra_images') as $extraFile) {
+                $extraBase64 = 'data:image/' . $extraFile->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($extraFile->getRealPath()));
+                $extraResponse = Http::withHeaders(['Accept' => 'application/json'])
+                    ->post("https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload", [
+                        'file' => $extraBase64,
+                        'upload_preset' => 'preset_mecatronica',
+                    ]);
+                if ($extraResponse->successful()) {
+                    $project->images()->create([
+                        'image_url' => $extraResponse->json()['secure_url']
+                    ]);
+                }
+            }
+        }
+
+            return response()->json($project->load('images'), 201);
 //            $this->syncRelations($project, $request);
 
  //           return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
