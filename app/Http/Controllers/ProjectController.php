@@ -22,152 +22,99 @@ class ProjectController extends Controller
 
     public function store(Request $request)
     {
-        return DB::transaction(function () use ($request) {
-
+        return DB::transaction(function () use ($request) { // Inicia transacción
             $data = $request->validate([
                 'title'          => 'required|string|max:255',
                 'description'    => 'nullable|string',
                 'category'       => 'nullable|string|max:100',
                 'semester_id'    => 'required|exists:semesters,id',
                 'shift_id'       => 'required|exists:shifts,id',
-
                 'image'          => 'nullable|image|max:10240',
-
-                // extra images
                 'extra_images'   => 'nullable|array',
                 'extra_images.*' => 'image|max:10240',
-
-                // NUEVO: prototype carousel
-                'prototype_images'   => 'nullable|array',
-                'prototype_images.*' => 'image|max:10240',
             ]);
 
-            // 1. Imagen principal
+            // 1. Subir Imagen Principal
             if ($request->hasFile('image')) {
                 $data['image'] = $this->uploadToCloudinary($request->file('image'));
             }
 
-            // 2. Crear proyecto
+            // 2. Crear Proyecto
             $project = Project::create($data);
 
-            // 3. Extra images
+            // 3. Subir Imágenes del Carrusel
             if ($request->hasFile('extra_images')) {
                 foreach ($request->file('extra_images') as $extraFile) {
                     $url = $this->uploadToCloudinary($extraFile);
-
                     if ($url) {
-                        $project->images()->create([
-                            'image_url' => $url
-                        ]);
-                    }
-                }
-            }
-
-            // 4. PROTOTYPE IMAGES (CARRUSEL)
-            if ($request->hasFile('prototype_images')) {
-                foreach ($request->file('prototype_images') as $file) {
-                    $url = $this->uploadToCloudinary($file);
-
-                    if ($url) {
-                        $project->images()->create([
-                            'image_url' => $url
-                        ]);
+                        $project->images()->create(['image_url' => $url]);
                     }
                 }
             }
 
             $this->syncRelations($project, $request);
 
-            return response()->json(
-                $project->load(['images', 'semester', 'shift', 'students', 'teachers']),
-                201
-            );
+            return response()->json($project->load(['images', 'semester', 'shift', 'students', 'teachers']), 201);
         });
     }
 
     public function update(Request $request, Project $project)
     {
         return DB::transaction(function () use ($request, $project) {
-
             $data = $request->validate([
                 'title'          => 'sometimes|required|string|max:255',
                 'description'    => 'nullable|string',
                 'category'       => 'nullable|string|max:100',
                 'semester_id'    => 'sometimes|required|exists:semesters,id',
                 'shift_id'       => 'sometimes|required|exists:shifts,id',
-
                 'image'          => 'nullable|image|max:10240',
-
-                'extra_images'   => 'nullable|array',
+                'extra_images'   => 'nullable|array', // Agregado para permitir update de galería
                 'extra_images.*' => 'image|max:10240',
-
-                // NUEVO
-                'prototype_images'   => 'nullable|array',
-                'prototype_images.*' => 'image|max:10240',
             ]);
 
-            // principal
             if ($request->hasFile('image')) {
                 $data['image'] = $this->uploadToCloudinary($request->file('image'));
             }
 
             $project->update($data);
 
-            // extra images
+            // Permitir subir más imágenes a la galería existente
             if ($request->hasFile('extra_images')) {
                 foreach ($request->file('extra_images') as $extraFile) {
                     $url = $this->uploadToCloudinary($extraFile);
-
                     if ($url) {
-                        $project->images()->create([
-                            'image_url' => $url
-                        ]);
-                    }
-                }
-            }
-
-            // prototype images
-            if ($request->hasFile('prototype_images')) {
-                foreach ($request->file('prototype_images') as $file) {
-                    $url = $this->uploadToCloudinary($file);
-
-                    if ($url) {
-                        $project->images()->create([
-                            'image_url' => $url
-                        ]);
+                        $project->images()->create(['image_url' => $url]);
                     }
                 }
             }
 
             $this->syncRelations($project, $request);
 
-            return response()->json(
-                $project->load(['semester', 'shift', 'students', 'teachers', 'images'])
-            );
+            return response()->json($project->load(['semester', 'shift', 'students', 'teachers', 'images']));
         });
     }
 
+    // Función auxiliar para no repetir código de Cloudinary
     private function uploadToCloudinary($file)
     {
         $response = Http::post($this->cloudinary_url, [
-            'file' => 'data:image/' . $file->getClientOriginalExtension() .
-                ';base64,' . base64_encode(file_get_contents($file->getRealPath())),
+            'file'          => 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath())),
             'upload_preset' => $this->preset,
         ]);
 
-        return $response->successful()
-            ? $response->json()['secure_url']
-            : null;
+        return $response->successful() ? $response->json()['secure_url'] : null;
     }
 
     public function destroy(Project $project)
     {
+        // Opcional: Podrías querer borrar las imágenes de Cloudinary aquí también.
         $project->delete();
         return response()->json(['message' => 'Eliminado'], 200);
     }
 
     private function syncRelations($project, $request)
     {
+        // Tu lógica de sync está bien, se mantiene igual
         $sRaw = $request->input('student_ids') ?? $request->input('student_ids[]') ?? [];
         $tRaw = $request->input('teacher_ids') ?? $request->input('teacher_ids[]') ?? [];
 
