@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Log;
 
 class ProjectController extends Controller
 {
-    // Centralizamos las variables utilizando tu preset UNSIGNED verificado ('ml_default')
     private $cloudinary_url = "https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload";
     private $preset = "ml_default"; 
 
@@ -42,7 +41,6 @@ class ProjectController extends Controller
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
                 
-                // Corrección: Envío binario nativo, compatible con Render y Cloudinary Unsigned
                 $response = Http::attach(
                     'file', 
                     file_get_contents($file->getRealPath()), 
@@ -60,8 +58,6 @@ class ProjectController extends Controller
             }
 
             $project = Project::create($data);
-            
-            // Activamos la sincronización de alumnos y profesores de forma segura
             $this->syncRelations($project, $request);
 
             return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
@@ -88,7 +84,6 @@ class ProjectController extends Controller
             ]);
 
             if (!$request->hasFile('image')) {
-                // Si no se edita la imagen, conservamos la URL que ya existía en la base de datos
                 unset($data['image']);
             } else {
                 $file = $request->file('image');
