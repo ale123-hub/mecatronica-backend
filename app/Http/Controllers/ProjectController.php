@@ -24,9 +24,10 @@ class ProjectController extends Controller
         }
     }
 
-    public function store(Request $request)
+public function store(Request $request)
     {
         try {
+            // 1. Validamos tolerando que las imágenes o categorías sean opcionales
             $validatedData = $request->validate([
                 'title'       => 'required|string|max:255',
                 'description' => 'nullable|string',
@@ -38,10 +39,10 @@ class ProjectController extends Controller
 
             $validatedData['image'] = null;
 
+            // 2. Subida limpia de imagen a Cloudinary leyendo el binario
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
                 
-                // Subida limpia compatible con Render
                 $response = Http::attach(
                     'file', 
                     file_get_contents($file->getRealPath()), 
@@ -58,7 +59,10 @@ class ProjectController extends Controller
                 }
             }
 
+            // 3. Crear el proyecto en BD
             $project = Project::create($validatedData);
+            
+            // 4. Sincronizar relaciones de forma segura (Inmune a datos vacíos)
             $this->syncRelations($project, $request);
 
             return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
@@ -84,6 +88,7 @@ class ProjectController extends Controller
                 'image'       => 'nullable|image|max:10240',
             ]);
 
+            // Si el front no manda un archivo de imagen nuevo, preservamos la URL previa de la BD
             if (!$request->hasFile('image')) {
                 unset($validatedData['image']);
             } else {
@@ -105,7 +110,10 @@ class ProjectController extends Controller
                 }
             }
 
+            // Actualizar proyecto en BD
             $project->update($validatedData);
+            
+            // Sincronizar relaciones
             $this->syncRelations($project, $request);
 
             return response()->json($project->load(['semester', 'shift', 'students', 'teachers']));
