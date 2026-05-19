@@ -7,118 +7,102 @@ use App\Models\Student;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+
 
 class ProjectController extends Controller
 {
     private $cloudinary_url = "https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload";
-    private $preset = "preset_mecatronica";
+    private $preset = "ml_default"; // Configurado con tu preset real unsigned de Cloudinary
 
     public function index()
     {
-        $projects = Project::with(['semester', 'shift', 'students', 'teachers', 'images'])->get();
-        return response()->json($projects);
+        return response()->json(Project::with(['semester', 'shift', 'students', 'teachers'])->get());
     }
 
     public function store(Request $request)
     {
-        return DB::transaction(function () use ($request) {
+        try {
             $data = $request->validate([
-                'title'          => 'required|string|max:255',
-                'description'    => 'nullable|string',
-                'category'       => 'nullable|string|max:100',
-                'semester_id'    => 'required|exists:semesters,id',
-                'shift_id'       => 'required|exists:shifts,id',
-                'image'          => 'nullable|image|max:10240',
-                'extra_images'   => 'nullable|array',
-                'extra_images.*' => 'image|max:10240',
+                'title'       => 'required|string|max:255',
+                'description' => 'nullable|string',
+                'category'    => 'nullable|string|max:100',
+                'semester_id' => 'required|exists:semesters,id',
+                'shift_id'    => 'required|exists:shifts,id',
+                'image'       => 'nullable|image|max:10240',
             ]);
 
-            // 1. Subir Imagen Principal y asignarla al array $data
             if ($request->hasFile('image')) {
-                $data['image'] = $this->uploadToCloudinary($request->file('image'));
-            }
+                $file = $request->file('image');
+                $base64 = 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
 
-            // 2. Crear Proyecto (Aquí se guarda en la base de datos)
-            $project = Project::create($data);
+                $response = Http::withHeaders([
+                    'Accept' => 'application/json',
+                ])->post($this->cloudinary_url, [
+                    'file'          => $base64, 
+                    'upload_preset' => $this->preset, // Usa ml_default
+                ]);
 
-            // 3. Subir Imágenes del Carrusel y guardarlas en la tabla relacionada
-            if ($request->hasFile('extra_images')) {
-                foreach ($request->file('extra_images') as $extraFile) {
-                    $url = $this->uploadToCloudinary($extraFile);
-                    if ($url) {
-                        $project->images()->create(['image_url' => $url]);
-                    }
+                if ($response->successful()) {
+                    $data['image'] = $response->json()['secure_url'];
+                } else {
+                    Log::error('Error En Cloudinary (Store): ' . $response->body());
                 }
             }
 
-            // 4. Sincronizar Relaciones (Estudiantes y Profesores)
+            $project = Project::create($data);
+            
+            // Sincroniza estudiantes y profesores al crear
             $this->syncRelations($project, $request);
 
-            return response()->json($project->load(['images', 'semester', 'shift', 'students', 'teachers']), 201);
-        });
+            return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
+
+        } catch (\Throwable $e) {
+            return response()->json([
+                'error' => 'Error en el servidor',
+                'detalle' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function update(Request $request, Project $project)
     {
-        return DB::transaction(function () use ($request, $project) {
+        try {
             $data = $request->validate([
-                'title'          => 'sometimes|required|string|max:255',
-                'description'    => 'nullable|string',
-                'category'       => 'nullable|string|max:100',
-                'semester_id'    => 'sometimes|required|exists:semesters,id',
-                'shift_id'       => 'sometimes|required|exists:shifts,id',
-                'image'          => 'nullable|image|max:10240',
-                'extra_images'   => 'nullable|array',
-                'extra_images.*' => 'image|max:10240',
+                'title'       => 'sometimes|required|string|max:255',
+                'description' => 'nullable|string',
+                'category'    => 'nullable|string|max:100',
+                'semester_id' => 'sometimes|required|exists:semesters,id',
+                'shift_id'    => 'sometimes|required|exists:shifts,id',
+                'image'       => 'nullable|image|max:10240',
             ]);
 
-            // Si suben una imagen nueva, actualizamos el campo
             if ($request->hasFile('image')) {
-                $data['image'] = $this->uploadToCloudinary($request->file('image'));
+                $file = $request->file('image');
+                $base64 = 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
+
+                $response = Http::post($this->cloudinary_url, [
+                    'file'          => $base64,
+                    'upload_preset' => $this->preset, // Usa ml_default
+                ]);
+
+                if ($response->successful()) {
+                    $data['image'] = $response->json()['secure_url'];
+                } else {
+                    Log::error('Error En Cloudinary (Update): ' . $response->body());
+                }
+            } else {
+                // Si el formulario no trae un archivo de imagen nuevo,
+                // removemos la llave para que no se pise la URL con datos vacíos o temporales
+                unset($data['image']);
             }
 
             $project->update($data);
-
-            // Agregar más imágenes a la galería si se envían
-            if ($request->hasFile('extra_images')) {
-                foreach ($request->file('extra_images') as $extraFile) {
-                    $url = $this->uploadToCloudinary($extraFile);
-                    if ($url) {
-                        $project->images()->create(['image_url' => $url]);
-                    }
-                }
-            }
-
             $this->syncRelations($project, $request);
 
-            return response()->json($project->load(['semester', 'shift', 'students', 'teachers', 'images']));
-        });
-    }
-
-    /**
-     * Sube un archivo a Cloudinary y retorna la URL segura.
-     */
-    private function uploadToCloudinary($file)
-    {
-        try {
-            $base64 = 'data:image/' . $file->getClientOriginalExtension() . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
-            
-            $response = Http::post($this->cloudinary_url, [
-                'file'          => $base64,
-                'upload_preset' => $this->preset,
-            ]);
-
-            if ($response->successful()) {
-                return $response->json()['secure_url'];
-            }
-
-            Log::error('Error Cloudinary: ' . $response->body());
-            return null;
-        } catch (\Exception $e) {
-            Log::error('Error subida: ' . $e->getMessage());
-            return null;
+            return response()->json($project->load(['semester', 'shift', 'students', 'teachers']));
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
@@ -136,27 +120,19 @@ class ProjectController extends Controller
         $students = is_string($sRaw) ? json_decode($sRaw, true) : (array)$sRaw;
         $teachers = is_string($tRaw) ? json_decode($tRaw, true) : (array)$tRaw;
 
-        // Sincronizar Estudiantes
         $sIds = [];
         foreach ($students as $s) {
             if (!$s) continue;
-            if (is_numeric($s)) {
-                $sIds[] = (int)$s;
-            } else {
-                $sIds[] = Student::firstOrCreate(['name' => trim($s)])->id;
-            }
+            if (is_numeric($s)) $sIds[] = (int)$s;
+            else $sIds[] = Student::firstOrCreate(['name' => trim($s)])->id;
         }
         $project->students()->sync($sIds);
 
-        // Sincronizar Profesores
         $tIds = [];
         foreach ($teachers as $t) {
             if (!$t) continue;
-            if (is_numeric($t)) {
-                $tIds[] = (int)$t;
-            } else {
-                $tIds[] = Teacher::firstOrCreate(['name' => trim($t)])->id;
-            }
+            if (is_numeric($t)) $tIds[] = (int)$t;
+            else $tIds[] = Teacher::firstOrCreate(['name' => trim($t)])->id;
         }
         $project->teachers()->sync($tIds);
     }
