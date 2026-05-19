@@ -11,8 +11,9 @@ use Illuminate\Support\Facades\Log;
 
 class ProjectController extends Controller
 {
+    // Centralizamos las variables utilizando tu preset UNSIGNED verificado ('ml_default')
     private $cloudinary_url = "https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload";
-    private $preset = "ml_default"; // Tu preset unsigned de Cloudinary
+    private $preset = "ml_default"; 
 
     public function index()
     {
@@ -24,11 +25,10 @@ class ProjectController extends Controller
         }
     }
 
-public function store(Request $request)
+    public function store(Request $request)
     {
         try {
-            // 1. Validamos tolerando que las imágenes o categorías sean opcionales
-            $validatedData = $request->validate([
+            $data = $request->validate([
                 'title'       => 'required|string|max:255',
                 'description' => 'nullable|string',
                 'category'    => 'nullable|string|max:100',
@@ -37,40 +37,39 @@ public function store(Request $request)
                 'image'       => 'nullable|image|max:10240',
             ]);
 
-            $validatedData['image'] = null;
+            $data['image'] = null;
 
-            // 2. Subida limpia de imagen a Cloudinary leyendo el binario
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
                 
+                // Corrección: Envío binario nativo, compatible con Render y Cloudinary Unsigned
                 $response = Http::attach(
                     'file', 
                     file_get_contents($file->getRealPath()), 
                     $file->getClientOriginalName()
                 )->post($this->cloudinary_url, [
-                    'upload_preset' => $this->preset
+                    'upload_preset' => $this->preset,
                 ]);
 
                 if ($response->successful()) {
-                    $validatedData['image'] = $response->json()['secure_url'];
+                    $data['image'] = $response->json()['secure_url'];
                 } else {
-                    Log::error('Error Cloudinary (Store): ' . $response->body());
-                    return response()->json(['error' => 'Error al subir imagen a Cloudinary'], 400);
+                    Log::error('Error En Cloudinary (Store): ' . $response->body());
+                    return response()->json(['error' => 'No se pudo procesar la imagen en la nube'], 400);
                 }
             }
 
-            // 3. Crear el proyecto en BD
-            $project = Project::create($validatedData);
+            $project = Project::create($data);
             
-            // 4. Sincronizar relaciones de forma segura (Inmune a datos vacíos)
+            // Activamos la sincronización de alumnos y profesores de forma segura
             $this->syncRelations($project, $request);
 
             return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
 
         } catch (\Throwable $e) {
-            Log::error('Error Crítico Store Backend: ' . $e->getMessage());
+            Log::error('Crash en Store: ' . $e->getMessage());
             return response()->json([
-                'error' => 'Error interno en el servidor',
+                'error' => 'Error en el servidor',
                 'detalle' => $e->getMessage()
             ], 500);
         }
@@ -79,7 +78,7 @@ public function store(Request $request)
     public function update(Request $request, Project $project)
     {
         try {
-            $validatedData = $request->validate([
+            $data = $request->validate([
                 'title'       => 'sometimes|required|string|max:255',
                 'description' => 'nullable|string',
                 'category'    => 'nullable|string|max:100',
@@ -88,9 +87,9 @@ public function store(Request $request)
                 'image'       => 'nullable|image|max:10240',
             ]);
 
-            // Si el front no manda un archivo de imagen nuevo, preservamos la URL previa de la BD
             if (!$request->hasFile('image')) {
-                unset($validatedData['image']);
+                // Si no se edita la imagen, conservamos la URL que ya existía en la base de datos
+                unset($data['image']);
             } else {
                 $file = $request->file('image');
 
@@ -99,26 +98,23 @@ public function store(Request $request)
                     file_get_contents($file->getRealPath()), 
                     $file->getClientOriginalName()
                 )->post($this->cloudinary_url, [
-                    'upload_preset' => $this->preset
+                    'upload_preset' => $this->preset,
                 ]);
 
                 if ($response->successful()) {
-                    $validatedData['image'] = $response->json()['secure_url'];
+                    $data['image'] = $response->json()['secure_url'];
                 } else {
-                    Log::error('Error Cloudinary (Update): ' . $response->body());
-                    return response()->json(['error' => 'Error al actualizar imagen en Cloudinary'], 400);
+                    Log::error('Error En Cloudinary (Update): ' . $response->body());
+                    return response()->json(['error' => 'No se pudo actualizar la imagen en la nube'], 400);
                 }
             }
 
-            // Actualizar proyecto en BD
-            $project->update($validatedData);
-            
-            // Sincronizar relaciones
+            $project->update($data);
             $this->syncRelations($project, $request);
 
             return response()->json($project->load(['semester', 'shift', 'students', 'teachers']));
         } catch (\Throwable $e) {
-            Log::error('Error Crítico Update Backend: ' . $e->getMessage());
+            Log::error('Crash en Update: ' . $e->getMessage());
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
@@ -129,7 +125,6 @@ public function store(Request $request)
         return response()->json(['message' => 'Eliminado'], 200);
     }
 
-    // --- ESTA ES LA FUNCIÓN QUE FALTABA Y QUE CAUSABA EL ERROR 500 ---
     private function syncRelations($project, $request)
     {
         $sRaw = $request->input('student_ids') ?? $request->input('student_ids[]') ?? [];
