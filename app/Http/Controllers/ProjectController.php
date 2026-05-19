@@ -12,17 +12,21 @@ use Illuminate\Support\Facades\Log;
 class ProjectController extends Controller
 {
     private $cloudinary_url = "https://api.cloudinary.com/v1_1/dgdzygi4j/image/upload";
-    private $preset = "ml_default";
+    private $preset = "ml_default"; // Tu preset unsigned de Cloudinary
 
     public function index()
     {
-        return response()->json(Project::with(['semester', 'shift', 'students', 'teachers'])->get());
+        try {
+            return response()->json(Project::with(['semester', 'shift', 'students', 'teachers'])->get());
+        } catch (\Throwable $e) {
+            Log::error('Error en Index: ' . $e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
     }
 
     public function store(Request $request)
     {
         try {
-            // 1. Validamos los datos de entrada
             $validatedData = $request->validate([
                 'title'       => 'required|string|max:255',
                 'description' => 'nullable|string',
@@ -32,40 +36,37 @@ class ProjectController extends Controller
                 'image'       => 'nullable|image|max:10240',
             ]);
 
-            // Inicializamos la URL de la imagen como nula por defecto
             $validatedData['image'] = null;
 
-            // 2. Si el frontend envió un archivo, lo subimos de forma nativa a Cloudinary
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
-
-                // Enviamos el archivo real usando attach() en lugar de Base64
-                $response = Http::asMultipart()->post($this->cloudinary_url, [
-                    'file'          => fopen($file->getRealPath(), 'r'),
-                    'upload_preset' => $this->preset,
+                
+                // Subida limpia compatible con Render
+                $response = Http::attach(
+                    'file', 
+                    file_get_contents($file->getRealPath()), 
+                    $file->getClientOriginalName()
+                )->post($this->cloudinary_url, [
+                    'upload_preset' => $this->preset
                 ]);
 
                 if ($response->successful()) {
                     $validatedData['image'] = $response->json()['secure_url'];
                 } else {
-                    Log::error('Error En Cloudinary (Store): ' . $response->body());
-                    return response()->json([
-                        'error' => 'No se pudo subir la imagen a Cloudinary',
-                        'detalle' => $response->json()
-                    ], 400);
+                    Log::error('Error Cloudinary (Store): ' . $response->body());
+                    return response()->json(['error' => 'Error al subir imagen a Cloudinary'], 400);
                 }
             }
 
-            // 3. Creamos el registro con la URL de Cloudinary asignada
             $project = Project::create($validatedData);
-            
             $this->syncRelations($project, $request);
 
             return response()->json($project->load(['semester', 'shift', 'students', 'teachers']), 201);
 
         } catch (\Throwable $e) {
+            Log::error('Error Crítico Store Backend: ' . $e->getMessage());
             return response()->json([
-                'error' => 'Error en el servidor',
+                'error' => 'Error interno en el servidor',
                 'detalle' => $e->getMessage()
             ], 500);
         }
@@ -83,27 +84,24 @@ class ProjectController extends Controller
                 'image'       => 'nullable|image|max:10240',
             ]);
 
-            // Si el formulario no trae un archivo de imagen nuevo,
-            // removemos la llave para preservar la URL que ya existía en la BD
             if (!$request->hasFile('image')) {
                 unset($validatedData['image']);
             } else {
-                // Si trae un archivo nuevo, lo procesamos y subimos a Cloudinary
                 $file = $request->file('image');
 
-                $response = Http::asMultipart()->post($this->cloudinary_url, [
-                    'file'          => fopen($file->getRealPath(), 'r'),
-                    'upload_preset' => $this->preset,
+                $response = Http::attach(
+                    'file', 
+                    file_get_contents($file->getRealPath()), 
+                    $file->getClientOriginalName()
+                )->post($this->cloudinary_url, [
+                    'upload_preset' => $this->preset
                 ]);
 
                 if ($response->successful()) {
                     $validatedData['image'] = $response->json()['secure_url'];
                 } else {
-                    Log::error('Error En Cloudinary (Update): ' . $response->body());
-                    return response()->json([
-                        'error' => 'No se pudo actualizar la imagen en Cloudinary',
-                        'detalle' => $response->json()
-                    ], 400);
+                    Log::error('Error Cloudinary (Update): ' . $response->body());
+                    return response()->json(['error' => 'Error al actualizar imagen en Cloudinary'], 400);
                 }
             }
 
@@ -112,6 +110,7 @@ class ProjectController extends Controller
 
             return response()->json($project->load(['semester', 'shift', 'students', 'teachers']));
         } catch (\Throwable $e) {
+            Log::error('Error Crítico Update Backend: ' . $e->getMessage());
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
@@ -122,6 +121,7 @@ class ProjectController extends Controller
         return response()->json(['message' => 'Eliminado'], 200);
     }
 
+    // --- ESTA ES LA FUNCIÓN QUE FALTABA Y QUE CAUSABA EL ERROR 500 ---
     private function syncRelations($project, $request)
     {
         $sRaw = $request->input('student_ids') ?? $request->input('student_ids[]') ?? [];
